@@ -1,0 +1,313 @@
+@startuml
+hide circle
+skinparam linetype ortho
+
+' ===== DESIGN NOTES =====
+' **RefreshToken (separate table):** Refresh tokens (hashed) must be stored in the DB to revoke them on logout or for security. Without this table, a token cannot be invalidated before it expires.
+' **TwoFactorAuth (separate table):** TOTP secret and recovery codes are highly sensitive; keeping them in a separate table allows encryption and clear lifecycle management. The "multiple codes" are one-time recovery codes that the user saves when enabling 2FA; if they lose their phone they use one of those codes to access (e.g. 10 codes per user).
+
+entity User {
+  +id : UUID
+  fullname : string
+  roleId : UUID
+  email : string
+  emailVerified : boolean
+  passwordHash : string
+  twoFactorEnabled : boolean
+  status : string
+  createdAt : datetime
+}
+
+entity Role {
+  +id : UUID
+  name : string
+}
+
+entity Permission {
+  +id : UUID
+  name : string
+  resource : string
+  action : string
+}
+
+entity RolePermission {
+  +roleId : UUID
+  +permissionId : UUID
+}
+
+entity AccessAudit {
+  +id : UUID
+  userId : UUID
+  action : string
+  entity : string
+  recordedAt : datetime
+  ip : string
+}
+
+entity Patient {
+  +id : UUID
+  userId : UUID
+  identificationType : IdentificationType
+  document : string
+  dateOfBirth : date
+  gender : string
+  bloodType : string
+  allergies : text
+  phoneNumber : string
+  acceptPrivacy : boolean
+  authorizeData : boolean
+}
+
+entity Doctor {
+  +id : UUID
+  userId : UUID
+  professionalLicense : string
+  verified : boolean
+}
+
+entity Specialty {
+  +id : UUID
+  name : string
+}
+
+entity DoctorSpecialty {
+  +doctorId : UUID
+  +specialtyId : UUID
+}
+
+entity Appointment {
+  +id : UUID
+  patientId : UUID
+  doctorId : UUID
+  scheduledAt : datetime
+  durationMinutes : int
+  status : string
+  reason : string
+}
+' status: Scheduled | Confirmed | InProgress | Completed | Cancelled
+
+entity ClinicalEncounter {
+  +id : UUID
+  appointmentId : UUID
+  startAt : datetime
+  endAt : datetime
+  chiefComplaint : text
+  currentCondition : text
+  physicalExam : text
+  assessment : text
+  plan : text
+  notes : text
+  isLocked : boolean
+  recordingUrl : string
+}
+
+entity Diagnosis {
+  +id : UUID
+  encounterId : UUID
+  icd10Code : string
+  description : string
+  type : string
+}
+
+entity Prescription {
+  +id : UUID
+  encounterId : UUID
+  doctorId : UUID
+  patientId : UUID
+  prescriptionNumber : string
+  issuedAt : datetime
+  validUntil : date
+  doctorSignatureHash : string
+}
+
+entity Medication {
+  +id : UUID
+  name : string
+}
+
+entity PrescriptionMedication {
+  +prescriptionId : UUID
+  +medicationId : UUID
+  dosage : string
+  frequency : string
+  durationDays : int
+  instructions : text
+}
+
+entity Device {
+  +id : UUID
+  patientId : UUID
+  provider : string
+  encryptedAccessToken : string
+  encryptedRefreshToken : string
+  tokenExpiresAt : datetime
+  isActive : boolean
+  lastSyncedAt : datetime
+}
+
+entity MetricType {
+  +id : UUID
+  name : string
+  unit : string
+}
+
+entity VitalMetric {
+  +id : UUID
+  patientId : UUID
+  deviceId : UUID
+  metricTypeId : UUID
+  value : decimal
+  recordedAt : datetime
+  source : string
+}
+
+entity Alert {
+  +id : UUID
+  patientId : UUID
+  vitalMetricId : UUID
+  level : string
+  message : string
+  triggeredAt : datetime
+  isRead : boolean
+}
+
+entity PredictiveModel {
+  +id : UUID
+  name : string
+  version : string
+  trainedAt : datetime
+}
+
+entity RiskAssessment {
+  +id : UUID
+  patientId : UUID
+  modelId : UUID
+  riskType : string
+  score : decimal
+  riskLevel : string
+  modelVersion : string
+  assessedAt : datetime
+}
+
+entity Recommendation {
+  +id : UUID
+  assessmentId : UUID
+  patientId : UUID
+  description : text
+  priority : string
+  requiresMedicalApproval : boolean
+  isApproved : boolean
+  approvedByDoctorId : UUID
+  generatedAt : datetime
+  isGeneratedByAI : boolean
+}
+
+entity ChatbotTriageSession {
+  +id : UUID
+  patientId : UUID
+  sessionId : string
+  triageRecommendation : text
+  startedAt : datetime
+  endedAt : datetime
+}
+
+entity ChatbotMessage {
+  +id : UUID
+  chatbotSessionId : UUID
+  role : string
+  content : text
+  createdAt : datetime
+}
+
+entity AuthorizedRelative {
+  +id : UUID
+  userId : UUID
+  isActive : boolean
+}
+
+entity AccessAuthorization {
+  +id : UUID
+  patientId : UUID
+  relativeId : UUID
+  authorizedAt : datetime
+}
+
+entity RefreshToken {
+  +id : UUID
+  userId : UUID
+  tokenHash : string
+  expiresAt : datetime
+  isRevoked : boolean
+}
+
+entity TwoFactorAuth {
+  +id : UUID
+  userId : UUID
+  encryptedSecret : string
+  isEnabled : boolean
+  encryptedRecoveryCodes : string
+}
+
+entity VideoSession {
+  +id : UUID
+  appointmentId : UUID
+  sessionId : string
+  roomToken : string
+  startedAt : datetime
+  endedAt : datetime
+  status : string
+  consentGiven : boolean
+  consentGivenAt : datetime
+}
+
+' ===== RELATIONSHIPS =====
+
+Role ||--o{ User
+Role ||--o{ RolePermission
+Permission ||--o{ RolePermission
+
+User ||--o| Patient
+User ||--o| Doctor
+User ||--o{ AccessAudit
+
+Doctor ||--o{ DoctorSpecialty
+Specialty ||--o{ DoctorSpecialty
+
+Patient ||--o{ Appointment
+Doctor ||--o{ Appointment
+
+Appointment ||--o| ClinicalEncounter
+ClinicalEncounter ||--o{ Diagnosis
+ClinicalEncounter ||--o{ Prescription
+
+Prescription ||--o{ PrescriptionMedication
+Medication ||--o{ PrescriptionMedication
+Doctor ||--o{ Prescription
+Patient ||--o{ Prescription
+
+Patient ||--o{ Device
+Patient ||--o{ VitalMetric
+MetricType ||--o{ VitalMetric
+Device ||--o{ VitalMetric
+
+VitalMetric ||--o{ Alert
+
+PredictiveModel ||--o{ RiskAssessment
+Patient ||--o{ RiskAssessment
+
+RiskAssessment ||--o{ Recommendation
+Doctor ||--o{ Recommendation
+
+Patient ||--o{ ChatbotTriageSession
+ChatbotTriageSession ||--o{ ChatbotMessage
+
+User ||--o{ AuthorizedRelative
+Patient ||--o{ AccessAuthorization
+AuthorizedRelative ||--o{ AccessAuthorization
+
+User ||--o{ RefreshToken
+User ||--o| TwoFactorAuth
+
+Appointment ||--o| VideoSession
+
+@enduml

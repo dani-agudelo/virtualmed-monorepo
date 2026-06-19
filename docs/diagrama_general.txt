@@ -1,0 +1,230 @@
+@startuml
+!define AWSPUML https://raw.githubusercontent.com/awslabs/aws-icons-for-plantuml/v14.0/dist
+!include AWSPUML/AWSCommon.puml
+!include AWSPUML/SecurityIdentityCompliance/all.puml
+!include AWSPUML/NetworkingContentDelivery/all.puml
+!include AWSPUML/Compute/all.puml
+!include AWSPUML/Database/all.puml
+!include AWSPUML/Storage/all.puml
+
+' Estilos personalizados
+skinparam backgroundColor #FEFEFE
+skinparam rectangle {
+    BackgroundColor<<security>> #FFE6E6
+    BackgroundColor<<frontend>> #E6F3FF
+    BackgroundColor<<backend>> #E6FFE6
+    BackgroundColor<<ai>> #FFF5E6
+    BackgroundColor<<database>> #F0E6FF
+    BackgroundColor<<external>> #FFFFCC
+}
+
+skinparam note {
+    BackgroundColor #FFFACD
+    BorderColor #FFD700
+}
+
+title Arquitectura General - Plataforma de Salud Digital VirtualMed\n(Con controles HIPAA-like y cumplimiento Ley 1581 de 2012)
+
+' ===== ZONA PÚBLICA (INTERNET) =====
+package "ZONA PÚBLICA - Internet" #FFCCCC {
+    actor "Paciente" as patient
+    actor "Médico" as doctor
+    actor "Administrador" as admin
+}
+
+' ===== ZONA DMZ (Perimetral) =====
+package "ZONA DMZ - Capa de Seguridad" #FFE6CC {
+    rectangle "Load Balancer\n+ WAF" as lb <<security>> #FF9999
+    rectangle "API Gateway\n JWT + 2FA\n Rate Limiting" as gateway <<security>> #FF9999
+    
+    note right of gateway
+        **Controles de Seguridad:**
+        - Autenticación JWT
+        - 2FA (TOTP)
+        - Rate Limiting
+        - IP Whitelisting
+        - Request Validation
+    end note
+}
+
+' ===== CAPA DE PRESENTACIÓN =====
+package "Capa de Presentación" #E6F3FF {
+    rectangle "Frontend Web\nNext.js 14 + TypeScript\n HTTPS Only" as frontend_web <<frontend>>
+    rectangle "App Móvil Android\nReact Native + Expo\n Certificate Pinning" as mobile_android <<frontend>>
+}
+
+' ===== CAPA DE APLICACIÓN =====
+package "Capa de Aplicación - Backend Services" #E6FFE6 {
+    rectangle "Backend API\n.NET Core 8\nClean Architecture\n\n Audit Logging\n RBAC Middleware\n Data Encryption" as backend <<backend>>
+    
+    package "Módulos Backend" {
+        rectangle "Auth Service\nJWT + 2FA" as auth_service
+        rectangle "Patient Service\nHistorial Clínico" as patient_service
+        rectangle "Consultation Service\nTelemedicina" as consult_service
+        rectangle "Wearable Service\nIntegración Dispositivo" as wearable_service
+        rectangle "Prescription Service\nRecetas Electrónicas" as prescription_service
+    }
+}
+
+' ===== CAPA DE INTELIGENCIA ARTIFICIAL =====
+package "Capa de IA - Microservicios Python" #FFF5E6 {
+    rectangle "Microservicio IA\nFastAPI (Python 3.11)\n\n Modelos Predictivos\n Chatbot RAG" as ai_service <<ai>>
+    
+    package "Componentes IA" {
+        rectangle "Predicción Riesgos\ Random Forest" as ml_models
+        rectangle "RAG Engine\nLangChain + GPT-4" as rag_engine
+        rectangle "Triaje Chatbot\nOpenAI API" as chatbot
+    }
+}
+
+' ===== CAPA DE DATOS =====
+package "Capa de Datos - Almacenamiento Seguro" #F0E6FF {
+    database "PostgreSQL\n Column-level Encryption\n AES-256\n\nDatos de pacientes\nHistoriales clínicos\nConsultas médicas" as postgres <<database>>
+    
+    database "Redis Cache\n Session Store\n In-memory\n\nTokens JWT\nSesiones activas" as redis <<database>>
+    
+    database "ChromaDB\n Encrypted\n Vector Store\n\nProtocolos médicos\nGuías clínicas (RAG)" as chromadb <<database>>
+    
+    rectangle "MinIO Object Storage\n Server-side Encryption\n S3-compatible\n\nArchivos médicos\nImágenes diagnósticas\nBackups cifrados" as minio <<database>>
+}
+
+' ===== SERVICIOS EXTERNOS =====
+package "Servicios Externos - APIs Terceros" #FFFFCC {
+    cloud "Google Fit API\n OAuth 2.0" as google <<external>>
+    cloud "OpenAI API\n API Key\nGPT-4" as openai <<external>>
+    cloud "Twilio\n Email/SMS" as twilio <<external>>
+}
+
+' ===== CAPA DE MONITOREO Y AUDITORÍA =====
+package "Monitoreo, Logs & Auditoría" #FFE6FF {
+    rectangle "Serilog\nCentralized Logging" as serilog
+    rectangle "Prometheus\nMetrics Collection" as prometheus
+    rectangle "Grafana\nDashboards" as grafana
+    database "Audit Log DB\n 5 años retención\n(Ley 1581)" as audit_db
+}
+
+' ===== CAPA DE VIDEO =====
+package "Infraestructura de Videoconsultas" #E6FFFF {
+    rectangle "WebRTC Server\nJanus/Mediasoup\n P2P Video" as webrtc
+    rectangle "SignalR Hub\n Real-time Chat" as signalr
+    rectangle "TURN/STUN Server\nNAT Traversal" as turn
+}
+
+' ===== CONEXIONES CON SEGURIDAD =====
+
+' Usuario a DMZ
+patient -[#red,bold]-> lb : <color:red>**HTTPS**</color>
+doctor -[#red,bold]-> lb : <color:red>**HTTPS**</color>
+admin -[#red,bold]-> lb : <color:red>**HTTPS**</color>
+
+' DMZ a Frontend
+lb -[#red,bold]-> gateway : <color:red>**TLS**</color>
+gateway -[#red,bold]-> frontend_web : <color:red>**TLS**</color>
+gateway -[#red,bold]-> mobile_android : <color:red>**TLS**</color>
+
+' Frontend a Backend
+frontend_web -[#blue,bold]-> backend : <color:blue>**JWT Token**</color>
+mobile_android -[#blue,bold]-> backend : <color:blue>**JWT Token**</color>
+
+' Backend a Módulos
+backend -down-> auth_service
+backend -down-> patient_service
+backend -down-> consult_service
+backend -down-> wearable_service
+backend -down-> prescription_service
+
+' Backend a IA
+backend -[#orange,dashed]-> ai_service : <color:orange>**Internal API**</color>\n<color:green>Encrypted</color>
+
+' IA a Componentes
+ai_service -down-> ml_models
+ai_service -down-> rag_engine
+ai_service -down-> chatbot
+
+' Backend/IA a Bases de Datos
+patient_service -[#purple,bold]-> postgres : <color:purple>**Encrypted Conn**</color>\n<color:red>AES-256 at rest</color>
+consult_service -[#purple,bold]-> postgres : <color:purple>**Encrypted Conn**</color>
+prescription_service -[#purple,bold]-> postgres : <color:purple>**Encrypted Conn**</color>
+
+auth_service -[#green]-> redis : <color:green>**Encrypted**</color>\nSession Store
+
+patient_service -[#brown]-> minio : <color:brown>**TLS**</color>\nMedical Files
+
+rag_engine -[#blue]-> chromadb : <color:blue>**Encrypted**</color>\nVector Search
+
+' Backend a Servicios Externos
+wearable_service -[#orange,dashed]-> google : <color:orange>**OAuth 2.0**</color>
+rag_engine -[#orange,dashed]-> openai : <color:orange>**API Key**</color>\n<color:red>HTTPS</color>
+backend -[#orange,dashed]-> twilio : <color:orange>**API Key**</color>\nNotifications
+
+' Video Infrastructure
+consult_service -[#red]-> webrtc : <color:red>**Secure WebRTC**</color>
+consult_service -[#red]-> signalr : <color:red>**WSS**</color>
+webrtc -[#red]-> turn : <color:red>**STUN/TURN**</color>
+
+' Monitoreo y Auditoría
+backend -[#gray,dashed]-> serilog : <color:gray>Logs</color>
+backend -[#gray,dashed]-> prometheus : <color:gray>Metrics</color>
+ai_service -[#gray,dashed]-> serilog : <color:gray>Logs</color>
+serilog -[#gray]-> audit_db : <color:gray>Audit Trail</color>
+prometheus -[#gray]-> grafana : <color:gray>Visualización</color>
+
+' Notas de seguridad adicionales
+note right of postgres
+    **Seguridad HIPAA-like:**
+    Cifrado columnas sensibles (AES-256)
+    Backup automático cifrado (30 días)
+    Acceso solo desde red interna
+    Audit logging de todas las queries
+    Retención 5 años (Ley 1581)
+end note
+
+note left of backend
+    **Clean Architecture:**
+    - Domain Layer
+    - Application Layer (CQRS)
+    - Infrastructure Layer
+    - Presentation Layer
+    
+    **Seguridad:**
+    - RBAC Middleware
+    - Audit Interceptor
+    - Data Encryption Service
+    - JWT Validation
+end note
+
+note bottom of ai_service
+    **Modelos Predictivos:**
+    ✓ Riesgo Cardiovascular (Random Forest)
+    
+    **RAG:**
+    ✓ 1000+ protocolos médicos
+    ✓ GPT-4 para recomendaciones
+    ✓ Chatbot de triaje
+end note
+
+note right of audit_db
+    **Cumplimiento Ley 1581:**
+    Registro de todos los accesos
+    Usuario + IP + Timestamp
+    Recurso accedido
+    Retención 5 años
+    Cifrado en reposo
+end note
+
+legend right
+    |<#FF9999> Seguridad |
+    |<#E6F3FF> Frontend |
+    |<#E6FFE6> Backend |
+    |<#FFF5E6> IA/ML |
+    |<#F0E6FF> Base de Datos |
+    |<#FFFFCC> Externos |
+    
+    **Leyenda de Conexiones:**
+    <color:red>━━━</color> HTTPS/TLS
+    <color:blue>━━━</color> JWT Auth
+    <color:purple>━━━</color> DB Encrypted
+    <color:orange>- - -</color> External API
+    <color:gray>- - -</color> Monitoring
+endlegend
+@enduml

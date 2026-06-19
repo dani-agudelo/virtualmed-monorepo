@@ -1,0 +1,40 @@
+{
+  "patientId": null,
+  "readings": [
+    {
+      "type": "HeartRate",
+      "value": 72,
+      "unit": "bpm",
+      "readingAt": "2026-05-19T08:00:00Z",
+      "notes": "demo simulador"
+    },
+    {
+      "type": "Steps",
+      "value": 8500,
+      "readingAt": "2026-05-19T08:00:00Z"
+    },
+    {
+      "type": "BloodPressureSystolic",
+      "value": 118,
+      "unit": "mmHg",
+      "readingAt": "2026-05-19T08:05:00Z"
+    },
+    {
+      "type": "BloodPressureDiastolic",
+      "value": 76,
+      "unit": "mmHg",
+      "readingAt": "2026-05-19T08:05:00Z"
+    },
+    {
+      "type": "Weight",
+      "value": 74.5,
+      "unit": "kg",
+      "readingAt": "2026-05-19T07:30:00Z"
+    },
+    {
+      "type": "SpO2",
+      "value": 98,
+      "readingAt": "2026-05-19T08:00:00Z"
+    }
+  ]
+}

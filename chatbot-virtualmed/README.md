@@ -1,0 +1,174 @@
+# Chatbot VirtualMed (RAG documental medico)
+
+API en **FastAPI** + **LlamaIndex** + **ChromaDB** para consultar documentos medicos.
+El LLM es **Google Gemini** y los embeddings se calculan con la **API de NVIDIA**
+(modelo configurable, por defecto `baai/bge-m3`).
+
+
+## Estructura del proyecto
+
+```text
+chatbot-virtualmed/
+├── api/
+│   ├── main.py
+│   └── schemas.py
+├── generation/
+│   ├── prompt.py
+│   └── query_engine.py
+├── ingestion/
+│   ├── loader.py
+│   ├── node_parsers.py
+│   └── pipeline.py
+├── retrieval/
+│   ├── postprocessor.py
+│   └── retriever.py
+├── storage/
+│   ├── chroma_store.py
+│   └── index_store.py
+├── data/              # PDFs/documentos a indexar
+├── chroma_db/         # persistencia local de Chroma
+├── config.py
+└── requirements.txt
+```
+
+---
+
+## Requisitos
+
+- **Python 3.10+**
+- Cuenta en [Google AI Studio](https://aistudio.google.com/) → `GEMINI_API_KEY`
+- Cuenta en [NVIDIA Build](https://build.nvidia.com/) → `NVIDIA_API_KEY`
+
+---
+
+## Instalación
+
+```bash
+python -m venv .venv
+source .venv/Scripts/activate  
+pip install -r requirements.txt
+```
+
+---
+
+## Variables de entorno (`.env`)
+
+Crea `.env` en la raíz del proyecto.
+
+### Obligatorias
+
+```env
+GEMINI_API_KEY=tu_clave_de_google_ai_studio
+NVIDIA_API_KEY=tu_clave_de_build_nvidia_com
+```
+
+### Opcionales
+
+| Variable | Descripción | Valor por defecto |
+|----------|-------------|-------------------|
+| `EMBED_MODEL` | Modelo de embeddings en el catálogo NVIDIA | `baai/bge-m3` |
+| `EMBED_BATCH_SIZE` | Textos por request (máx. 259 en la API NVIDIA) | `32` |
+
+Ejemplo para otro modelo del catálogo:
+
+```env
+EMBED_MODEL=nvidia/nv-embedqa-e5-v5
+```
+
+> Si se cambia el modelo de embeddings, **borrar la carpeta `chroma_db/`** y volver a ejecutar `/ingest` (las dimensiones del vector cambian).
+
+## Uso
+
+### 1. Colocar documentos
+
+Copiar los documentos en `data/` (actualmente el flujo base trabaja con `.pdf`).
+Ejemplos: laboratorios, recetas, epicrisis, evoluciones y ordenes medicas.
+
+### 2. Arrancar la API
+
+```bash
+uvicorn api.main:app --reload
+```
+
+
+### 3. Ingesta
+
+```bash
+curl -X POST http://127.0.0.1:8000/ingest
+```
+
+
+### 4. Chat (con memoria por sesión)
+
+Mismo `session_id` en varias llamadas = misma conversación.
+
+**Git Bash / macOS / Linux:**
+
+```bash
+curl -X POST http://127.0.0.1:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id": "consulta-1",
+    "message": "Resume los hallazgos principales del ultimo informe",
+  }'
+```
+
+Campos del cuerpo:
+
+| Campo | Obligatorio | Descripción |
+|-------|-------------|-------------|
+| `session_id` | Sí | Identificador de conversación |
+| `message` | Sí | Pregunta del usuario |
+| `similarity_top_k` | No (default 5) | Cuántos chunks recuperar antes de generar |
+
+---
+
+## Endpoints
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| `GET` | `/health` | Estado del servicio |
+| `POST` | `/ingest` | Lee `data/*.pdf`, pipeline, upsert en Chroma |
+| `POST` | `/chat` | RAG conversacional + lista de fuentes |
+| `GET` | `/swagger` | Swagger UI |
+| `GET` | `/redoc` | ReDoc |
+| `GET` | `/openapi.json` | Esquema OpenAPI |
+
+---
+
+## Parámetros relevantes (`config.py`)
+
+| Constante | Valor por defecto | Nota |
+|-----------|------------------|------|
+| `CHUNK_SIZE` | `512` | Alineado con modelos que truncan ~512 tokens |
+| `CHUNK_OVERLAP` | `64` | Solape entre chunks |
+| `LLM_MODEL` | `gemini-2.5-flash` | Nombre de modelo para la API de Google GenAI |
+| `DEFAULT_EMBED_MODEL` | `baai/bge-m3` | Multilingüe; configurable con `EMBED_MODEL` |
+| `CHROMA_COLLECTION` | `faculty_docs` | Nombre de la colección en Chroma |
+
+---
+
+## Comportamiento del asistente
+
+Definido en `generation/prompt.py`:
+
+- Rol: asistente clinico-documental de VirtualMed.
+- Responde solo con informacion **recuperada** de los documentos indexados.
+- Usa lenguaje claro y prioriza informacion del paciente/consulta actual.
+- Responde con lenguaje claro y directo, sin citar archivos ni paginas en el texto.
+- Las fuentes se devuelven por separado en el campo `sources` de la API.
+- Si faltan datos, lo indica y solicita el dato faltante.
+- No emite diagnosticos definitivos ni reemplaza la evaluacion profesional.
+- Si detecta una posible senal de alarma en el texto recuperado, sugiere consulta presencial/urgente con cautela.
+- Si no existe evidencia en el contexto recuperado, responde exactamente: **"No tengo esa información en los documentos"**.
+
+---
+
+## Alcance de esta fase
+
+- Incluido:
+  - Actualizacion del prompt para dominio VirtualMed.
+  - Reglas de respuesta por evidencia (RAG) y formato de salida recomendado.
+- Pendiente (siguiente fase):
+  - Seguridad y cumplimiento (autenticacion, autorizacion, auditoria, privacidad).
+  - Endurecimiento de guardrails clinicos y politicas de uso por rol.

@@ -1,0 +1,43 @@
+# Version control
+.git
+.gitignore
+.github
+
+# Build output
+bin/
+obj/
+*.dll
+*.pdb
+*.exe
+
+# IDE
+.vscode/
+.vs/
+*.sln.iml
+*.user
+.idea/
+
+# Dependencies
+packages/
+node_modules/
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Testing
+*.test
+coverage/
+
+# Temporary
+tmp/
+temp/
