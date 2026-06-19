@@ -82,7 +82,8 @@ integrador/
 │   └── sync-frontend-env.ps1
 ├── README.md
 ├── docs/
-│   └── MANUAL_DE_INSTALACION.md    ← Este documento
+│   ├── MANUAL_DE_INSTALACION.md    ← Este documento
+│   └── audit_log_bd_triggers.sql   ← Triggers de auditoría (ejecutar en PostgreSQL)
 ├── VirtualMed_Frontend/            ← Next.js
 ├── VirtualMedBackend/              ← API .NET
 ├── chatbot-virtualmed/             ← Chatbot RAG
@@ -159,9 +160,9 @@ cp .env.example .env
 
 Edita `.env` con tus valores reales (ver [sección 6](#6-archivo-env-completo)).
 
-### Paso 3 — Aplicar migraciones de base de datos
+### Paso 3 — Migraciones de base de datos (EF Core)
 
-Solo la **primera vez** (requiere .NET SDK instalado):
+Solo la **primera vez** (requiere .NET SDK instalado). Crea tablas e índices desde el código del backend:
 
 ```bash
 cd VirtualMedBackend
@@ -171,7 +172,22 @@ cd ..
 
 Si falla, verifica que `POSTGRES_CONNECTION` en `.env` sea correcta y que Render permita conexiones externas.
 
-### Paso 4 — Construir las imágenes Docker
+### Paso 4 — Triggers de auditoría (SQL manual)
+
+Ejecutar **una vez** el script `docs/audit_log_bd_triggers.sql` **en la misma base de datos** (después de las migraciones). No lo aplica EF Core; debes correrlo tú con un cliente PostgreSQL.
+
+Ver detalle en [sección 7](#7-base-de-datos).
+
+Ejemplo con `psql` (ajusta usuario, host y BD):
+
+```bash
+psql "postgresql://USUARIO:CONTRASEÑA@HOST.render.com:5432/NOMBRE_BD?sslmode=require" \
+  -f docs/audit_log_bd_triggers.sql
+```
+
+En **Render**: Dashboard → PostgreSQL → **Connect** → pestaña **PSQL** o **External**, y pega/ejecuta el contenido del archivo.
+
+### Paso 5 — Construir las imágenes Docker
 
 Desde la carpeta `integrador/`:
 
@@ -181,11 +197,13 @@ docker compose build
 
 La primera vez puede tardar **15–30 minutos** (descarga de imágenes base, `npm`, Python, .NET).
 
-### Paso 5 — Levantar los servicios
+### Paso 6 — Levantar los servicios
 
 ```bash
 docker compose up -d
 ```
+
+Al arrancar, el **backend** ejecuta automáticamente la semilla de roles y permisos (`RolePermissionSeeder`). Ver [sección 7](#7-base-de-datos).
 
 Comprobar que todos estén activos:
 
@@ -195,7 +213,7 @@ docker compose ps
 
 Deberías ver 5 contenedores: `virtualmed-frontend`, `virtualmed-backend`, `virtualmed-chatbot`, `virtualmed-risk`, `virtualmed-minio`.
 
-### Paso 6 — Verificar (ver [sección 9](#9-verificación))
+### Paso 7 — Verificar (ver [sección 9](#9-verificación))
 
 ---
 
@@ -293,12 +311,22 @@ NEXT_PUBLIC_CHATBOT_INTERNAL_API_KEY=virtualmed-internal-dev-key
 
 ## 7. Base de datos
 
+Orden recomendado al instalar por **primera vez**:
+
+```text
+1. dotnet ef database update     → esquema (tablas, FK, audit_logs vacía)
+2. audit_log_bd_triggers.sql     → triggers + índices de auditoría en PostgreSQL
+3. docker compose up -d          → backend corre RolePermissionSeeder al iniciar
+```
+
 ### Opción A — PostgreSQL en Render (recomendado para el equipo)
 
 1. Crear instancia PostgreSQL en [Render](https://render.com).
 2. Copiar **External Connection String** o armar la cadena manualmente.
 3. Pegar en `POSTGRES_CONNECTION` del `.env`.
 4. Ejecutar migraciones EF (paso 3 de instalación).
+5. Ejecutar `docs/audit_log_bd_triggers.sql` en esa BD (paso 4).
+6. Levantar Docker; la semilla de roles se aplica sola al arrancar el backend.
 
 ### Opción B — PostgreSQL local en Docker
 
@@ -310,17 +338,94 @@ NEXT_PUBLIC_CHATBOT_INTERNAL_API_KEY=virtualmed-internal-dev-key
    ```
 
 3. Ejecutar migraciones apuntando a localhost:5432.
+4. Ejecutar `audit_log_bd_triggers.sql` contra esa BD.
+5. `docker compose up -d`.
 
-### Migraciones
+### Migraciones (Entity Framework Core)
+
+Crea el esquema relacional (usuarios, citas, `audit_logs`, etc.):
 
 ```bash
 cd VirtualMedBackend
 dotnet ef database update --project VirtualMed.Infrastructure --startup-project VirtualMed.Api
 ```
 
-### Usuarios de prueba
+Para generar una migración nueva (solo desarrollo):
 
-Los usuarios deben existir en la base de datos (registro previo o seed del backend al arrancar). Para permisos RAG admin, el rol **Admin** debe tener permisos `RagDocument:*` o acceder como administrador.
+```bash
+dotnet ef migrations add NombreMigracion --project VirtualMed.Infrastructure --startup-project VirtualMed.Api
+```
+
+### Triggers de auditoría (`docs/audit_log_bd_triggers.sql`)
+
+**Sí, debes ejecutarlo manualmente en PostgreSQL.** No forma parte de las migraciones EF.
+
+El script es **idempotente** (`IF NOT EXISTS`, `CREATE OR REPLACE`): puedes re-ejecutarlo sin duplicar triggers.
+
+| Qué hace | Detalle |
+|----------|---------|
+| Extensión | `pgcrypto` (si no existe) |
+| Índices | Sobre `audit_logs` (`OccurredAt`, `TableName`, `RowPk`) |
+| `UpdatedAt` | Triggers automáticos en tablas clínicas y RBAC |
+| Auditoría | INSERT/UPDATE/DELETE → filas en `audit_logs` (JSON `OldData`/`NewData`) |
+
+**Tablas auditadas:** `roles`, `permissions`, `role_permissions`, `appointments`, `clinical_encounters`, `diagnoses`, `prescriptions`, `medications`, `prescription_medications`, `video_sessions`, `video_chat_messages`.
+
+**Notas:**
+
+- La app puede setear `app.user_id` antes de cada `SaveChanges` para registrar quién hizo el cambio (interceptor del backend).
+- En `video_sessions`, el token de sala (`RoomToken`) **no** se guarda en el log de auditoría (se redacta).
+
+**Cómo ejecutarlo:**
+
+```bash
+# Desde la raíz del monorepo, con psql y URL de conexión
+psql "postgresql://USUARIO:CONTRASEÑA@HOST:5432/BD?sslmode=require" \
+  -f docs/audit_log_bd_triggers.sql
+```
+
+Alternativas: DBeaver, pgAdmin, consola SQL de Render, o `\i ruta/al/archivo.sql` dentro de `psql`.
+
+**Comprobar que aplicó:**
+
+```sql
+SELECT trigger_name, event_object_table
+FROM information_schema.triggers
+WHERE trigger_name LIKE 'trg_%audit%'
+ORDER BY event_object_table;
+```
+
+Deberías ver triggers en las tablas listadas arriba.
+
+### Semilla de roles y permisos (`RolePermissionSeeder`)
+
+**No hay que ejecutar un script SQL aparte.** La semilla corre **automáticamente** cada vez que el backend arranca (`Program.cs` → `SeedAsync()`).
+
+Archivo: `VirtualMedBackend/VirtualMed.Infrastructure/Persistence/RolePermissionSeeder.cs`
+
+| Qué hace | Detalle |
+|----------|---------|
+| Permisos | Inserta o actualiza el catálogo (`Patient:Read`, `Appointment:Create`, `AuditLog:Read`, etc.) |
+| Roles | Asegura roles estándar: **Patient**, **Doctor**, **Specialist**, **Admin**, **FamilyMember** |
+| Asignación | Sincroniza permisos por rol (p. ej. Admin → `AuditLog:Read`, `Doctor:Approve`, gestión de usuarios) |
+| Idempotente | Si ya existen, actualiza descripciones y re-sincroniza enlaces rol–permiso |
+
+Si la BD no está disponible al iniciar, la API **sigue levantándose** y deja un warning en logs; al conectar la BD, reinicia el backend:
+
+```bash
+docker compose restart backend
+```
+
+**Importante:** la semilla **no crea usuarios de prueba** (no hay admin/contraseña por defecto). Debes **registrar** usuarios por la app o insertarlos manualmente. Los permisos del JWT dependen del rol asignado en `users`.
+
+**Panel RAG admin:** el frontend valida acceso por rol **Admin** (no requiere permiso `RagDocument:*` en BD, porque el chatbot es independiente del backend).
+
+### Usuarios y acceso inicial
+
+1. Ejecutar migraciones + triggers SQL + levantar backend (semilla de roles).
+2. Registrar un usuario (paciente, médico o admin según flujo de la app).
+3. Para admin: usar un usuario con rol **Admin** (asignación manual en BD o flujo de registro del equipo).
+4. Cerrar sesión y volver a entrar si cambiaste roles/permisos (el JWT cachea claims al login).
 
 ---
 
@@ -566,6 +671,12 @@ Para demo en LAN o servidor:
 - Detener contenedor viejo: `docker stop chatbot-backend`.
 - O proceso local: `netstat -ano | findstr :8000` → `taskkill /PID <id> /F`.
 
+### Auditoría vacía o sin registros en `audit_logs`
+
+- ¿Ejecutaste `docs/audit_log_bd_triggers.sql` **después** de las migraciones?
+- Comprueba triggers: consulta `information_schema.triggers` (ver [sección 7](#7-base-de-datos)).
+- Los cambios hechos **antes** de instalar triggers no se auditan retroactivamente.
+
 ### No aparece zona de subida PDF (admin)
 
 - Usuario debe ser **Admin**.
@@ -600,7 +711,8 @@ Cada persona que instale debe:
 4. **Desacoplamiento RAG**: PDFs del chatbot en disco (`data/`) + Chroma; frontend habla directo con FastAPI.
 5. **MinIO** almacena documentos de soporte del registro médico (distinto del corpus RAG).
 6. **Backend** centraliza negocio clínico (auth, citas, videoconsulta, riesgo CV) y PostgreSQL.
-7. **Persistencia**: BD relacional + volúmenes Docker (MinIO, corpus RAG).
+7. **Auditoría en BD:** migraciones EF + script SQL de triggers + semilla automática de RBAC al arrancar.
+8. **Persistencia**: BD relacional + volúmenes Docker (MinIO, corpus RAG).
 
 ---
 
@@ -611,6 +723,7 @@ Cada persona que instale debe:
 cp .env.example .env
 # (editar .env)
 cd VirtualMedBackend && dotnet ef database update --project VirtualMed.Infrastructure --startup-project VirtualMed.Api && cd ..
+psql "postgresql://USUARIO:PASS@HOST:5432/BD?sslmode=require" -f docs/audit_log_bd_triggers.sql
 docker compose build
 docker compose up -d
 

@@ -7,6 +7,7 @@ using VirtualMed.Application.Commands.Doctors;
 using VirtualMed.Application.Commands.Roles;
 using VirtualMed.Application.Commands.Users;
 using VirtualMed.Application.Queries.Roles;
+using VirtualMed.Application.Queries.Users;
 
 namespace VirtualMed.Api.Controllers;
 
@@ -62,6 +63,24 @@ public class AdminController : ControllerBase
     public async Task<IActionResult> UpdateRole(Guid id, [FromBody] UpdateRoleRequest request)
     {
         await _mediator.Send(new UpdateRoleCommand(id, request.Name, request.PermissionIds));
+        return NoContent();
+    }
+
+    /// <summary>Lista todos los usuarios con su rol.</summary>
+    [RequirePermission("User", "Read")]
+    [HttpGet("users")]
+    public async Task<IActionResult> GetUsers()
+    {
+        var list = await _mediator.Send(new GetUsersQuery());
+        return Ok(list);
+    }
+
+    /// <summary>Actualiza el estado de un usuario (Active, Pending, Inactive).</summary>
+    [RequirePermission("User", "ManageRoles")]
+    [HttpPatch("users/{userId:guid}/status")]
+    public async Task<IActionResult> UpdateUserStatus(Guid userId, [FromBody] UpdateUserStatusRequest request)
+    {
+        await _mediator.Send(new UpdateUserStatusCommand(userId, request.Status));
         return NoContent();
     }
 

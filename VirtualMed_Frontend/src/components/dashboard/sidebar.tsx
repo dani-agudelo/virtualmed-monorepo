@@ -109,6 +109,7 @@ const PATIENT_NAV_ITEMS: NavItem[] = [
 
 const ADMIN_NAV_ITEMS: NavItem[] = [
   { id: 'admin-dashboard', label: 'Dashboard', href: '/dashboard/admin', icon: Home },
+  { id: 'admin-users', label: 'Usuarios', href: '/dashboard/admin/users', icon: Users, requiredPermissions: ['User:Read'] },
   { id: 'admin-audit-logs', label: 'Logs Auditoría', href: '/dashboard/admin/audit-logs', icon: ShieldCheck },
   {
     id: 'admin-appointments',
@@ -123,7 +124,15 @@ const ADMIN_NAV_ITEMS: NavItem[] = [
     id: 'admin-clinical-encounters', label: 'Actualizar Encuentros Clínicos',
     href: '/dashboard/admin/clinical-encounters/update', icon: Stethoscope, requiredPermissions: ['ClinicalEncounter:Update']
   },
-  { id: 'admin-rag-documents', label: 'Base RAG', href: '/dashboard/admin/rag-documents', icon: FileText, requiredPermissions: ['RagDocument:Read'] },
+  {
+    id: 'admin-chatbot',
+    label: 'Chatbot RAG',
+    icon: MessageCircle,
+    children: [
+      { label: 'Asistente', href: '/dashboard/admin/chat' },
+      { label: 'Base RAG (PDFs)', href: '/dashboard/admin/rag-documents' },
+    ],
+  },
 ];
 
 const SETTINGS_NAV_ITEM: NavLinkItem = {
